@@ -112,7 +112,6 @@ def mapa_coropletico(indicador, anio):
     d = DF[DF["anio"] == anio]
     
     if GEOJSON_COLOMBIA is None:
-        # Fallback a gráfico de barras si el GeoJSON falla
         fig = px.bar(
             d.sort_values(by=indicador, ascending=False),
             x="departamento", y=indicador,
@@ -120,7 +119,6 @@ def mapa_coropletico(indicador, anio):
         )
         return fig
 
-    # Compatibilidad con Plotly moderno y legacy
     try:
         if hasattr(px, "choropleth_map"):
             fig = px.choropleth_map(
@@ -136,8 +134,7 @@ def mapa_coropletico(indicador, anio):
                 zoom=4.2, center={"lat": 4.5709, "lon": -74.2973},
                 title=f"Econometría Espacial: {indicador} ({anio})"
             )
-    except Exception as e:
-        # Fallback a coroplético estándar sin mapbox si ocurre algún error de renderer
+    except Exception:
         fig = px.choropleth(
             d, geojson=GEOJSON_COLOMBIA, locations="departamento", featureidkey="properties.name",
             color=indicador, color_continuous_scale="Viridis",
@@ -239,17 +236,27 @@ def simulacion_politica(depto, delta_inversion):
         fig = go.Figure()
         return fig, "Departamento no encontrado."
     
+    # 1. Ajuste del modelo con las variables de entrenamiento
     X = DF[["Inversion_DNP"]]
     y = DF["PIB"]
     model = Ridge().fit(X, y)
     
+    # 2. Aplicación del choque porcentual
     sub["Inversion_Simulada"] = sub["Inversion_DNP"] * (1 + delta_inversion / 100.0)
-    sub["PIB_Simulado"] = model.predict(sub[["Inversion_Simulada"]])
     
+    # 3. Predicción asignando el mismo nombre de columna con el que se entrenó el modelo
+    X_sim = pd.DataFrame({"Inversion_DNP": sub["Inversion_Simulada"]})
+    sub["PIB_Simulado"] = model.predict(X_sim)
+    
+    # Graficar resultados
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=sub["anio"], y=sub["PIB"], mode='lines+markers', name='PIB Base'))
     fig.add_trace(go.Scatter(x=sub["anio"], y=sub["PIB_Simulado"], mode='lines+markers', name='PIB Simulado', line=dict(dash='dot')))
-    fig.update_layout(title=f"Simulación de Impacto Presupuestal ({delta_inversion}%) en {depto}")
+    fig.update_layout(
+        title=f"Simulación de Impacto Presupuestal ({delta_inversion}%) en {depto}",
+        xaxis_title="Año",
+        yaxis_title="PIB"
+    )
     
     return fig, f"Simulación ejecutada correctamente para {depto} con una variación del {delta_inversion}% en la asignación del DNP."
 
