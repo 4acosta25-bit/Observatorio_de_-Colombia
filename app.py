@@ -92,19 +92,59 @@ def cargar_datos_completos():
         return pd.DataFrame()
 
 DF = cargar_datos_completos()
-GEOJSON_COLOMBIA_URL = "https://raw.githubusercontent.com/mledoze/countries/master/data/col.geo.json"
+
+@st.cache_data
+def cargar_geojson():
+    url = "https://raw.githubusercontent.com/mledoze/countries/master/data/col.geo.json"
+    try:
+        res = requests.get(url, timeout=10)
+        return res.json()
+    except Exception as e:
+        st.warning(f"No se pudo cargar el GeoJSON externo: {e}")
+        return None
+
+GEOJSON_COLOMBIA = cargar_geojson()
 
 # ============================================================
 # 2. FUNCIONES ANALÍTICAS Y MODELOS
 # ============================================================
 def mapa_coropletico(indicador, anio):
     d = DF[DF["anio"] == anio]
-    fig = px.choropleth_mapbox(
-        d, geojson=GEOJSON_COLOMBIA_URL, locations="departamento", featureidkey="properties.name",
-        color=indicador, color_continuous_scale="Viridis", mapbox_style="carto-positron",
-        zoom=4.2, center={"lat": 4.5709, "lon": -74.2973},
-        title=f"Econometría Espacial: {indicador} ({anio})"
-    )
+    
+    if GEOJSON_COLOMBIA is None:
+        # Fallback a gráfico de barras si el GeoJSON falla
+        fig = px.bar(
+            d.sort_values(by=indicador, ascending=False),
+            x="departamento", y=indicador,
+            title=f"Distribución de {indicador} por Departamento ({anio})"
+        )
+        return fig
+
+    # Compatibilidad con Plotly moderno y legacy
+    try:
+        if hasattr(px, "choropleth_map"):
+            fig = px.choropleth_map(
+                d, geojson=GEOJSON_COLOMBIA, locations="departamento", featureidkey="properties.name",
+                color=indicador, color_continuous_scale="Viridis", map_style="carto-positron",
+                zoom=4.2, center={"lat": 4.5709, "lon": -74.2973},
+                title=f"Econometría Espacial: {indicador} ({anio})"
+            )
+        else:
+            fig = px.choropleth_mapbox(
+                d, geojson=GEOJSON_COLOMBIA, locations="departamento", featureidkey="properties.name",
+                color=indicador, color_continuous_scale="Viridis", mapbox_style="carto-positron",
+                zoom=4.2, center={"lat": 4.5709, "lon": -74.2973},
+                title=f"Econometría Espacial: {indicador} ({anio})"
+            )
+    except Exception as e:
+        # Fallback a coroplético estándar sin mapbox si ocurre algún error de renderer
+        fig = px.choropleth(
+            d, geojson=GEOJSON_COLOMBIA, locations="departamento", featureidkey="properties.name",
+            color=indicador, color_continuous_scale="Viridis",
+            title=f"Econometría Espacial: {indicador} ({anio})"
+        )
+        fig.update_geos(fitbounds="locations", visible=False)
+
     fig.update_layout(margin={"r":0,"t":40,"l":0,"b":0})
     return fig
 
